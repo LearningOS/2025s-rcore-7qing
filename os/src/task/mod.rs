@@ -16,13 +16,13 @@ mod task;
 
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
+use crate::syscall::to_syscall_index;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
+pub use context::TaskContext;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
-
-pub use context::TaskContext;
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -201,4 +201,36 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Get the syscall time of current task
+pub fn __sys_trace(_id: usize) -> usize {
+    let syscall_id = to_syscall_index(_id);
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let cur = inner.current_task;
+    inner.tasks[cur].every_syscall_time[syscall_id]
+}
+
+/// Add syscall time of current task
+pub fn __sys_trace_add(_id: usize) {
+    let syscall_id = to_syscall_index(_id);
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let cur = inner.current_task;
+    inner.tasks[cur].every_syscall_time[syscall_id] += 1;
+}
+
+/// Get the current 'Running' task's memory set
+pub fn __sys_getvm(_start: usize, _len: usize, _port: usize) -> isize {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let cur = inner.current_task;
+    inner.tasks[cur]
+        .memory_set
+        .find_memory_area(_start, _len, _port)
+}
+
+/// Delete the current 'Running' task's memory set
+pub fn __sys_delvm(_start: usize, _len: usize) -> isize {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let cur = inner.current_task;
+    inner.tasks[cur].memory_set.delete_memory_area(_start, _len)
 }
