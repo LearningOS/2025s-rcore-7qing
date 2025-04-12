@@ -30,7 +30,7 @@ pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-pub use manager::add_task;
+pub use manager::{add_stride, add_task};
 pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
     Processor,
@@ -39,9 +39,10 @@ pub use processor::{
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
     let task = take_current_task().unwrap();
-
+    add_stride(&task);
     // ---- access current TCB exclusively
     let mut task_inner = task.inner_exclusive_access();
+
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
@@ -61,7 +62,7 @@ pub const IDLE_PID: usize = 0;
 pub fn exit_current_and_run_next(exit_code: i32) {
     // take from Processor
     let task = take_current_task().unwrap();
-
+    add_stride(&task);
     let pid = task.getpid();
     if pid == IDLE_PID {
         println!(
