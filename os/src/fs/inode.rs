@@ -20,12 +20,13 @@ use lazy_static::*;
 pub struct OSInode {
     readable: bool,
     writable: bool,
-    inner: UPSafeCell<OSInodeInner>,
+    /// The inode inner in 'UPSafeCell'
+    pub inner: UPSafeCell<OSInodeInner>,
 }
 /// The OS inode inner in 'UPSafeCell'
 pub struct OSInodeInner {
     offset: usize,
-    inode: Arc<Inode>,
+    pub inode: Arc<Inode>,
 }
 
 impl OSInode {
@@ -53,9 +54,19 @@ impl OSInode {
         }
         v
     }
+    /// clear the inode
+    pub fn get_inode_id(&self) -> u64 {
+        self.inner
+            .exclusive_access()
+            .inode
+            .block_id
+            .try_into()
+            .unwrap()
+    }
 }
 
 lazy_static! {
+    /// The root inode of the filesystem
     pub static ref ROOT_INODE: Arc<Inode> = {
         let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
         Arc::new(EasyFileSystem::root_inode(&efs))
@@ -123,6 +134,16 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
             Arc::new(OSInode::new(readable, writable, inode))
         })
     }
+}
+
+/// link two files
+pub fn __sys_linkat(_old_name: &str, _new_name: &str) -> isize {
+    trace!("__sys_linkat");
+    ROOT_INODE.linkat(_old_name, _new_name)
+}
+/// unlink a file
+pub fn __sys_unlink(name: &str) -> isize {
+    ROOT_INODE.unlink(name)
 }
 
 impl File for OSInode {

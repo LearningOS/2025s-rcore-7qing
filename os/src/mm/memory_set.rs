@@ -318,6 +318,100 @@ impl MemorySet {
             false
         }
     }
+
+    /// copy data to the area
+    pub fn __sys_mmap(&mut self, _start: usize, _len: usize, _port: usize) -> isize {
+        if _len == 0 {
+            trace!("kernel: sys_mmap failed: len is 0");
+            return -1;
+        }
+        if _start % PAGE_SIZE != 0 {
+            trace!("kernel: sys_mmap failed: start address is not page-aligned");
+            return -1;
+        }
+        if _port & !0x7 != 0 || _port & 0x7 == 0 {
+            trace!("kernel: sys_mmap failed: invalid port flags");
+            return -1;
+        }
+        let start_va = VirtAddr::from(_start);
+        let end_va = VirtAddr::from(_start + _len);
+        let mut perm = MapPermission::U; // 用户模式可访问
+        if _port & 1 != 0 {
+            perm |= MapPermission::R; // PROT_READ
+        }
+        if _port & 2 != 0 {
+            perm |= MapPermission::W; // PROT_WRITE
+        }
+        if _port & 4 != 0 {
+            perm |= MapPermission::X; // PROT_EXEC
+        }
+
+        for area in &self.areas {
+            let area_start = area.vpn_range.get_start().into();
+            let area_end = area.vpn_range.get_end().into();
+            if start_va < area_end && end_va > area_start {
+                trace!("kernel: sys_mmap failed: address range already mapped");
+                return -1;
+            }
+        }
+        trace!("kernel: sys_mmap insert_framed_area");
+        self.insert_framed_area(start_va, end_va, perm);
+        0
+    }
+    /// unmap the area
+    pub fn __sys_munap(&mut self, _start: usize, _len: usize) -> isize {
+        if _len == 0 {
+            trace!("kernel: sys_munmap failed: len is 0");
+            return -1;
+        }
+        if _start % PAGE_SIZE != 0 {
+            trace!("kernel: sys_munmap failed: start address is not page-aligned");
+            return -1;
+        }
+        let start_va = VirtAddr::from(_start);
+        let end_va = VirtAddr::from(_start + _len);
+        let start_vpn = start_va.floor();
+        let end_vpn = end_va.ceil();
+
+        let mut found = false;
+        for i in (0..self.areas.len()).rev() {
+            let area = &mut self.areas[i];
+            let area_start = area.vpn_range.get_start();
+            let area_end = area.vpn_range.get_end();
+            // 检查是否完全包含要取消映射的区域
+            if area_start <= start_vpn && area_end >= end_vpn {
+                found = true;
+                // 如果区域完全匹配，则移除整个区域
+                if area_start == start_vpn && area_end == end_vpn {
+                    area.unmap(&mut self.page_table);
+                    self.areas.remove(i);
+                } else if area_start == start_vpn {
+                    // 区域从开头缩小
+                    area.shrink_to(&mut self.page_table, end_vpn);
+                } else if area_end == end_vpn {
+                    // 区域从末尾缩小
+                    area.shrink_to(&mut self.page_table, start_vpn);
+                } else {
+                    // 区域被分割，需要创建新区域
+                    let new_area = MapArea::new(
+                        end_vpn.into(),
+                        area_end.into(),
+                        area.map_type,
+                        area.map_perm,
+                    );
+                    area.shrink_to(&mut self.page_table, start_vpn);
+                    self.push(new_area, None);
+                }
+                break;
+            }
+        }
+        if !found {
+            trace!("kernel: sys_munmap failed: no matching mapped area");
+            return -1;
+        }
+
+        0
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
