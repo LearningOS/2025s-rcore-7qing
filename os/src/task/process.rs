@@ -25,6 +25,12 @@ pub struct ProcessControlBlock {
 
 /// Inner of Process Control Block
 pub struct ProcessControlBlockInner {
+    /// dead_lock_dectect
+    pub dead_lock_dectect: bool,
+    /// mutex_available
+    pub m_available: Vec<usize>,
+    /// seg
+    pub s_available: Vec<usize>,
     /// is zombie?
     pub is_zombie: bool,
     /// memory set(address space)
@@ -82,6 +88,24 @@ impl ProcessControlBlockInner {
     pub fn get_task(&self, tid: usize) -> Arc<TaskControlBlock> {
         self.tasks[tid].as_ref().unwrap().clone()
     }
+
+    ///  get a mutex with id in this process
+    pub fn set_m_available(&mut self, id: usize, num: usize) {
+        let desired_length = id + 1;
+        if self.m_available.len() < desired_length {
+            self.m_available.resize(desired_length, 0);
+        }
+        self.m_available[id] += num;
+    }
+    /// get
+    pub fn set_s_available(&mut self, id: usize, num: usize) {
+        let desired_length = id + 1;
+        if self.s_available.len() < desired_length {
+            trace!("set_s_available id: {}", id);
+            self.s_available.resize(desired_length, 0);
+        }
+        self.s_available[id] += num;
+    }
 }
 
 impl ProcessControlBlock {
@@ -100,6 +124,9 @@ impl ProcessControlBlock {
             pid: pid_handle,
             inner: unsafe {
                 UPSafeCell::new(ProcessControlBlockInner {
+                    dead_lock_dectect: false,
+                    m_available: Vec::new(),
+                    s_available: Vec::new(),
                     is_zombie: false,
                     memory_set,
                     parent: None,
@@ -233,6 +260,9 @@ impl ProcessControlBlock {
             pid,
             inner: unsafe {
                 UPSafeCell::new(ProcessControlBlockInner {
+                    dead_lock_dectect: false,
+                    m_available: parent.m_available.clone(),
+                    s_available: parent.s_available.clone(),
                     is_zombie: false,
                     memory_set,
                     parent: Some(Arc::downgrade(self)),
